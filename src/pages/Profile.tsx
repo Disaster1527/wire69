@@ -8,10 +8,12 @@ const formatContact = (contact: string) => {
   if (/^\S+@\S+\.\S+$/.test(contact)) {
     return contact.toLowerCase();
   }
-  const digits = contact.replace(/\D/g, "");
-  if (digits.length >= 10) {
-    const lastFour = digits.slice(-4);
-    return `•••• •••• ${lastFour}`;
+  if (contact.startsWith('+')) {
+    const digits = contact.replace(/\D/g, "");
+    if (digits.length >= 10) {
+      const lastFour = digits.slice(-4);
+      return `+•••• •••• ${lastFour}`;
+    }
   }
   return contact;
 };
@@ -43,12 +45,19 @@ const Profile = () => {
         <Card className="border-border/60 shadow-lg">
           <CardHeader>
             <CardTitle className="text-3xl">My Profile</CardTitle>
-            <CardDescription>Manage your secure, OTP-based account.</CardDescription>
+            <CardDescription>Manage your account authenticated via Supabase.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
               <h2 className="text-sm font-medium text-muted-foreground">Verified Contact</h2>
               <p className="mt-2 text-lg font-semibold">{formattedContact}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {user.contact.includes('@') ? 'Email' : 'Phone'} authentication
+              </p>
+            </div>
+            <div>
+              <h2 className="text-sm font-medium text-muted-foreground">User ID</h2>
+              <p className="mt-2 text-sm font-mono break-all">{user.id}</p>
             </div>
             <div>
               <h2 className="text-sm font-medium text-muted-foreground">Last Login</h2>
