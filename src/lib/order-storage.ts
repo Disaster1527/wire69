@@ -42,7 +42,17 @@ export const getOrders = async (userId?: string): Promise<Order[]> => {
 
   const { data, error } = await supabase
     .from('orders')
-    .select('*')
+    .select(`
+      *,
+      order_items (
+        id,
+        product_id,
+        product_name,
+        product_price,
+        quantity,
+        subtotal
+      )
+    `)
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
@@ -62,7 +72,15 @@ export const getOrders = async (userId?: string): Promise<Order[]> => {
       address: order.shipping_address?.address || '',
       pincode: order.shipping_address?.pincode || '',
     },
-    items: order.items,
+    items: (order.order_items || []).map((item: any) => ({
+      id: item.product_id,
+      productName: item.product_name,
+      unitPrice: Number(item.product_price),
+      quantity: item.quantity,
+      brand: '',
+      color: '',
+      imageUrl: '',
+    })),
     subtotal: Number(order.subtotal),
     shippingCost: Number(order.shipping_cost),
     totalAmount: Number(order.total_amount),
@@ -85,7 +103,7 @@ export const saveOrder = async (order: Order): Promise<void> => {
     return;
   }
 
-  const { error } = await supabase
+  const { data: insertedOrder, error: orderError } = await supabase
     .from('orders')
     .insert({
       user_id: order.userId,
@@ -99,7 +117,6 @@ export const saveOrder = async (order: Order): Promise<void> => {
         name: order.customerInfo.name,
         phone: order.customerInfo.phone,
       },
-      items: order.items,
       subtotal: order.subtotal,
       shipping_cost: order.shippingCost,
       total_amount: order.totalAmount,
@@ -109,11 +126,31 @@ export const saveOrder = async (order: Order): Promise<void> => {
       qr_code_data: order.qrCodeData,
       transaction_id: order.transactionId,
       estimated_delivery: order.estimatedDelivery,
-    });
+    })
+    .select()
+    .single();
 
-  if (error) {
-    console.error('Error saving order:', error);
+  if (orderError) {
+    console.error('Error saving order:', orderError);
     throw new Error('Failed to save order');
+  }
+
+  const orderItems = order.items.map(item => ({
+    order_id: insertedOrder.id,
+    product_id: item.id,
+    product_name: item.productName,
+    product_price: item.unitPrice,
+    quantity: item.quantity,
+    subtotal: item.unitPrice * item.quantity,
+  }));
+
+  const { error: itemsError } = await supabase
+    .from('order_items')
+    .insert(orderItems);
+
+  if (itemsError) {
+    console.error('Error saving order items:', itemsError);
+    throw new Error('Failed to save order items');
   }
 };
 
@@ -157,7 +194,17 @@ export const getOrderById = async (orderId: string, userId?: string): Promise<Or
 
   const { data, error } = await supabase
     .from('orders')
-    .select('*')
+    .select(`
+      *,
+      order_items (
+        id,
+        product_id,
+        product_name,
+        product_price,
+        quantity,
+        subtotal
+      )
+    `)
     .eq('id', orderId)
     .eq('user_id', userId)
     .maybeSingle();
@@ -178,7 +225,15 @@ export const getOrderById = async (orderId: string, userId?: string): Promise<Or
       address: data.shipping_address?.address || '',
       pincode: data.shipping_address?.pincode || '',
     },
-    items: data.items,
+    items: (data.order_items || []).map((item: any) => ({
+      id: item.product_id,
+      productName: item.product_name,
+      unitPrice: Number(item.product_price),
+      quantity: item.quantity,
+      brand: '',
+      color: '',
+      imageUrl: '',
+    })),
     subtotal: Number(data.subtotal),
     shippingCost: Number(data.shipping_cost),
     totalAmount: Number(data.total_amount),
@@ -220,7 +275,17 @@ export const getAllOrdersForAdmin = async (): Promise<Order[]> => {
 
   const { data, error } = await supabase
     .from('orders')
-    .select('*')
+    .select(`
+      *,
+      order_items (
+        id,
+        product_id,
+        product_name,
+        product_price,
+        quantity,
+        subtotal
+      )
+    `)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -240,7 +305,15 @@ export const getAllOrdersForAdmin = async (): Promise<Order[]> => {
       address: order.shipping_address?.address || '',
       pincode: order.shipping_address?.pincode || '',
     },
-    items: order.items,
+    items: (order.order_items || []).map((item: any) => ({
+      id: item.product_id,
+      productName: item.product_name,
+      unitPrice: Number(item.product_price),
+      quantity: item.quantity,
+      brand: '',
+      color: '',
+      imageUrl: '',
+    })),
     subtotal: Number(order.subtotal),
     shippingCost: Number(order.shipping_cost),
     totalAmount: Number(order.total_amount),
