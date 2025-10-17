@@ -1,62 +1,105 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-
-const OWNER_AUTH_STORAGE_KEY = "owner-dashboard-authenticated";
-const OWNER_EMAIL = "owner@cablehq.com";
-const OWNER_PASSWORD = "SecurePass123!";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import type { Session } from "@supabase/supabase-js";
+import { toast } from "sonner";
 
 interface OwnerAuthContextValue {
   isAuthenticated: boolean;
-  login: (email: string, password: string) => boolean;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  session: Session | null;
 }
 
 const OwnerAuthContext = createContext<OwnerAuthContextValue | undefined>(undefined);
 
 export const OwnerAuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (typeof window === "undefined") {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [session, setSession] = useState<Session | null>(null);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session?.user) {
+        supabase
+          .from('owner_accounts')
+          .select('id')
+          .eq('id', session.user.id)
+          .maybeSingle()
+          .then(({ data }) => {
+            setIsAuthenticated(!!data);
+          });
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      (async () => {
+        setSession(session);
+        if (session?.user) {
+          const { data } = await supabase
+            .from('owner_accounts')
+            .select('id')
+            .eq('id', session.user.id)
+            .maybeSingle();
+
+          setIsAuthenticated(!!data);
+        } else {
+          setIsAuthenticated(false);
+        }
+      })();
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const login = useCallback(async (email: string, password: string) => {
+    if (!isSupabaseConfigured) {
+      toast.error("Authentication is not configured");
       return false;
     }
 
-    return window.localStorage.getItem(OWNER_AUTH_STORAGE_KEY) === "true";
-  });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password: password.trim(),
+      });
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
+      if (error) throw error;
 
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === OWNER_AUTH_STORAGE_KEY) {
-        setIsAuthenticated(event.newValue === "true");
+      if (data.user) {
+        const { data: ownerData } = await supabase
+          .from('owner_accounts')
+          .select('id')
+          .eq('id', data.user.id)
+          .maybeSingle();
+
+        if (!ownerData) {
+          await supabase.auth.signOut();
+          toast.error("Access denied. Owner account required.");
+          return false;
+        }
+
+        setIsAuthenticated(true);
+        toast.success("Welcome back!");
+        return true;
       }
-    };
 
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+      return false;
+    } catch (error: any) {
+      console.error('Login error:', error);
+      toast.error(error.message || "Invalid credentials");
+      return false;
+    }
   }, []);
 
-  const login = useCallback((email: string, password: string) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const normalizedPassword = password.trim();
-
-    const success = normalizedEmail === OWNER_EMAIL && normalizedPassword === OWNER_PASSWORD;
-
-    if (success) {
-      setIsAuthenticated(true);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(OWNER_AUTH_STORAGE_KEY, "true");
-      }
+  const logout = useCallback(async () => {
+    if (isSupabaseConfigured) {
+      await supabase.auth.signOut();
     }
-
-    return success;
-  }, []);
-
-  const logout = useCallback(() => {
     setIsAuthenticated(false);
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(OWNER_AUTH_STORAGE_KEY);
-    }
+    setSession(null);
+    toast.info("Logged out successfully");
   }, []);
 
   const value = useMemo(
@@ -64,8 +107,9 @@ export const OwnerAuthProvider = ({ children }: { children: React.ReactNode }) =
       isAuthenticated,
       login,
       logout,
+      session,
     }),
-    [isAuthenticated, login, logout],
+    [isAuthenticated, login, logout, session],
   );
 
   return <OwnerAuthContext.Provider value={value}>{children}</OwnerAuthContext.Provider>;
